@@ -22,7 +22,6 @@ def train_data(path,limit_speaker,limit_files=1000):
             X_train.append(audio)
             y_train.append(id)
             j+=1
-            print(file)
 
     return np.array(X_train),np.array(y_train)
 
@@ -40,4 +39,3 @@ def model():
 if __name__=="__main__":
     path="C:/Users/48502/Desktop/Baza/IAD2SEM1/dataset5s_mfcc"
     X_train,y_train=train_data(path,200,150)
-    print(X_train.shape,y_train.shape)
