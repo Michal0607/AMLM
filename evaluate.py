@@ -24,14 +24,14 @@ def test_data_generator(path,limit):
                 mfcc_matrix = np.load(file_path)
                 if mfcc_matrix.shape[0] == 157:
                     if speakers_count > limit:
-                        list_temp.append(mfcc_matrix) # 8
+                        list_temp.append(mfcc_matrix) # 8 12 10
                         if len(list_temp) == 10:
                             X_enrollment = np.concatenate(list_temp, axis=0)
                             y_enrollment = speaker_id
                             list_temp = []
                             check = 1
                             yield X_enrollment, y_enrollment, 'enrollment'
-                        if len(list_temp) == 6 and check == 1: # 2
+                        if len(list_temp) == 6 and check == 1: # 2 4 6
                             X_test = np.concatenate(list_temp, axis=0)
                             y_test = speaker_id
                             list_temp = []

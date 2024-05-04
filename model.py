@@ -1,12 +1,11 @@
 import numpy as np
-from keras.layers import Dense,Dropout,LSTM,BatchNormalization
+from keras.layers import Dense,Dropout,LSTM
 from keras.models import Sequential
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
 import seaborn as sns
 import keras
-from keras_tuner import RandomSearch, HyperParameters
 import os
 
 def train_data_generator(path, limit_speaker):
@@ -66,8 +65,8 @@ def history_plot(history):
     plt.show()
 
 if __name__ == "__main__":
-    path = "C:/Users/48502/Desktop/Baza/IAD2SEM1/dataset5s_mfcc"
-    generator = train_data_generator(path,200)
+    path="C:/Users/48502/Desktop/Baza/IAD2SEM1/dataset5s_mfcc"
+    generator=train_data_generator(path,200)
     X_train,y_train=[],[]
     for audio, speaker_id in generator:
         X_train.append(audio)
