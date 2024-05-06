@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 
-path = "C:/Users/48502/Desktop/Baza/IAD2SEM1/Projects/AMLM/results_1.csv"
+path = "C:/Users/48502/Desktop/Baza/IAD2SEM1/Projects/AMLM/lda_lstm_results_3.csv"
 data_frame = pd.read_csv(path)
 
 is_genuine_0 = data_frame[data_frame['Test'] == 0]

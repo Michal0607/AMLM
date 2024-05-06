@@ -3,6 +3,7 @@ import pandas as pd
 import keras
 from sklearn.metrics.pairwise import cosine_similarity
 from keras.models import load_model
+import pickle
 import os
 
 def test_data_generator(path,limit):
@@ -37,11 +38,11 @@ def test_data_generator(path,limit):
                             list_temp = []
                             yield X_test, y_test, 'test'
 
-def genuine_impost_test(test_sample,embedding_layer,mean_enrollment_embedding,j,i,test,scores):
+def genuine_impost_test(test_sample,LDA,embedding_layer,mean_enrollment_embedding,j,i,test,scores):
         test_embeddings=[]
         test_samples_157=[test_sample[k:k+157] for k in range(0,len(test_sample),157)]
         for test_sample_157 in test_samples_157:
-            test_embedding=embedding_layer.predict(np.expand_dims(test_sample_157,axis=0))[0,:]
+            test_embedding=LDA.transform(embedding_layer.predict(np.expand_dims(test_sample_157,axis=0)))[0,:]
             test_embeddings.append(test_embedding)
 
         mean_test_embedding=np.expand_dims(np.mean(test_embeddings,axis=0),axis=0)
@@ -49,7 +50,7 @@ def genuine_impost_test(test_sample,embedding_layer,mean_enrollment_embedding,j,
         is_genuine=test
         scores.append([y_enrollment[j],y_test[i],similarity_score[0][0],is_genuine])
 
-def score(embedding_layer,X_enrollment,y_enrollment,X_test,y_test,output_csv):
+def score(embedding_layer,LDA,X_enrollment,y_enrollment,X_test,y_test,output_csv):
     scores=[]
     print(type(scores))
     for j in range(len(X_enrollment)):
@@ -57,7 +58,7 @@ def score(embedding_layer,X_enrollment,y_enrollment,X_test,y_test,output_csv):
         enrollment_sample = X_enrollment[j]
         enrollment_samples_157 = [enrollment_sample[k:k+157] for k in range(0, len(enrollment_sample), 157)]
         for enrollment_sample_157 in enrollment_samples_157:
-            enrollment_embedding = embedding_layer.predict(np.expand_dims(enrollment_sample_157, axis=0))[0,:]
+            enrollment_embedding = LDA.transform(embedding_layer.predict(np.expand_dims(enrollment_sample_157, axis=0)))[0,:]
             enrollment_embeddings.append(enrollment_embedding)
         mean_enrollment_embedding = np.expand_dims(np.mean(enrollment_embeddings, axis=0),axis=0)
 
@@ -66,9 +67,9 @@ def score(embedding_layer,X_enrollment,y_enrollment,X_test,y_test,output_csv):
             random=round(np.random.uniform(0,1),2)
             
             if y_enrollment[j]==y_test[i] and random<=0.7:
-                genuine_impost_test(test_sample,embedding_layer,mean_enrollment_embedding,j,i,1,scores)
+                genuine_impost_test(test_sample,LDA,embedding_layer,mean_enrollment_embedding,j,i,1,scores)
             elif y_enrollment[j]!=y_test[i] and random<=0.12:
-                genuine_impost_test(test_sample,embedding_layer,mean_enrollment_embedding,j,i,0,scores)
+                genuine_impost_test(test_sample,LDA,embedding_layer,mean_enrollment_embedding,j,i,0,scores)
         print(f"Próbka numer: {j}")
     df = pd.DataFrame(scores,columns=['Speaker A','Speaker B','Score','Test'])
     df.to_csv(output_csv,index=False)
@@ -88,6 +89,8 @@ if __name__ == '__main__':
             X_test.append(X)
             y_test.append(y)
     model=load_model('AMLM/model.keras')
+    with open('AMLM/LDA_model.pk','rb') as file:
+        LDA=pickle.load(file)
     model.summary()
     embedding_layer=keras.Model(inputs=model.layers[0].input,outputs=model.layers[3].output)
-    score(embedding_layer,X_enrollment,y_enrollment,X_test,y_test,'AMLM/results_3.csv')
+    score(embedding_layer,LDA,X_enrollment,y_enrollment,X_test,y_test,'AMLM/lda_lstm_results_3.csv')    

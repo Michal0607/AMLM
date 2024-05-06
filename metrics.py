@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 
-path="C:/Users/48502/Desktop/Baza/IAD2SEM1/Projects/AMLM/results_3.csv"
+path="C:/Users/48502/Desktop/Baza/IAD2SEM1/Projects/AMLM/lda_lstm_results_1.csv"
 
 data=pd.read_csv(path)
 
