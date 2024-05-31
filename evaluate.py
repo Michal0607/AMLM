@@ -70,7 +70,6 @@ def score(embedding_layer,LDA,X_enrollment,y_enrollment,X_test,y_test,output_csv
                 genuine_impost_test(test_sample,LDA,embedding_layer,mean_enrollment_embedding,j,i,1,scores)
             elif y_enrollment[j]!=y_test[i] and random<=0.12:
                 genuine_impost_test(test_sample,LDA,embedding_layer,mean_enrollment_embedding,j,i,0,scores)
-        print(f"Próbka numer: {j}")
     df = pd.DataFrame(scores,columns=['Speaker A','Speaker B','Score','Test'])
     df.to_csv(output_csv,index=False)
 

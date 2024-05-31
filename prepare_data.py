@@ -1,7 +1,6 @@
 import numpy as np
 import os
 import librosa 
-from scipy.io import wavfile
 
 def read_audio_files(path,path_out,fol_out,time):
     path_out=os.path.join(path_out,fol_out)

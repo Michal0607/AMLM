@@ -1,0 +1,363 @@
+---
+title: "System Weryfikacji Biometrycznej"
+format: 
+  html: 
+    toc: true
+    toc-location: left
+editor: visual
+jupyter: python3
+self-contained: true
+execute:
+  echo: true
+editor_options: 
+  chunk_output_type: console
+---
+
+# **Wprowadzenie**
+
+Celem projektu było stworzenie systemu weryfikacji biometrycznej bazującego na analizie głosu. Projekt składa się z kilku etapów, począwszy od przygotowania danych, poprzez trening modelu, aż po ewaluację wyników. W niniejszym raporcie omówione zostaną poszczególne etapy pracy, wykorzystane metody oraz uzyskane rezultaty.
+
+# **Wykorzystane bibliotetki**
+
+Poniżej znajdują się wszystkie biblioetki oraz moduły wykorzystane w projekcie
+
+```{python}
+import numpy as np
+import os
+import librosa
+from keras.layers import Dense,Dropout,LSTM
+from keras.models import Sequential
+from keras.models import load_model
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.metrics.pairwise import cosine_similarity
+import pickle
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import keras
+```
+
+# **Przygotowanie Danych**
+
+Dane pochodzą ze zbioru LibriSpeech w którym znajduje się 100h ,. Zbiór został przetworzony na segmenty 5-sekundowe dla każdego mówcy w formacie MFCC (Mel-Frequency Cepstral Coefficients). Wszystkie segmenty zostały zapisane w jednym folderze, co ułatwia dalsze przetwarzanie.
+
+```{python}
+def read_audio_files(path,path_out,fol_out,time):
+    path_out=os.path.join(path_out,fol_out)
+    if not os.path.exists(path_out):
+        os.makedirs(path_out)
+    files_list,id_list,audio_combined=[],[],[]
+    folders_list=os.listdir(path)
+
+    for folders in folders_list:
+        folders=os.path.join(path,folders)
+        speakers_list=os.listdir(folders)
+        id_list.append(folders.split(os.path.sep)[-1])
+
+        for folder in speakers_list:
+            folder=os.path.join(folders,folder)
+
+            for file in os.listdir(folder):
+                if file.endswith('.flac'):
+                    file=os.path.join(folder,file)
+                    files_list.append(file)
+    id_set=set(id_list)
+
+    id=files_list[0].split(os.path.sep)[-3]
+    for file in files_list:
+        file_id=file.split(os.path.sep)[-3]
+        if file_id in id_set and id==file_id:
+            audio,sr=librosa.load(file,sr=16000)
+            audio_combined.append(audio)
+            id=file_id
+        elif id!=file_id:
+            speakers={
+                "id":id,
+                "audio":np.concatenate(audio_combined)
+            }
+            audio_combined=[]
+            id=file_id
+            build_dataset(speakers,path_out,time)
+```
+
+```{python}
+def build_dataset(speaker_dict,path_out,time):
+    sample_rate=16000
+    id=speaker_dict['id']
+    sample_length=sample_rate*time
+    num_samples=len(speaker_dict['audio'])//sample_length
+
+    for i in range(num_samples):
+        start=i*sample_length
+        end=start+sample_length
+        sample=speaker_dict['audio'][start:end]
+        sample_mfcc=librosa.feature.mfcc(y=sample,sr=sample_rate,n_mfcc=13)
+        sample_mfcc=sample_mfcc.T
+
+        output_file=os.path.join(path_out,f'{id}_{i+1}.npy')
+        np.save(output_file,sample_mfcc)
+```
+
+# **Poszukiwanie optymalnego modelu**
+
+```{python}
+def train_data_generator(path, limit_speaker):
+    files=os.listdir(path)
+    i=0
+    current_id=files[0].split("_")[0]
+
+    for file in files:
+        if current_id!=file.split("_")[0]:
+            i+=1
+            if i>=limit_speaker:
+                break
+
+        audio=np.load(os.path.join(path,file))
+        current_id=file.split("_")[0]
+        yield audio,current_id
+```
+
+```{python}
+def get_model():
+    model=Sequential([
+        LSTM(384,input_shape=(157,13)),
+        Dense(256,activation='relu'),
+        Dropout(0.25),
+        Dense(96,activation='relu'),
+        Dense(200,activation='softmax')
+    ])
+    model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.0003),loss='categorical_crossentropy',metrics=['accuracy'])
+
+    return model
+```
+
+```{python}
+def history_plot(history):
+    loss=history.history['loss']
+    val_loss=history.history['val_loss']
+    accuracy=history.history['accuracy']
+    val_accuracy=history.history['val_accuracy']
+    
+    sns.set(style="whitegrid")  
+    
+    plt.figure(figsize=(16,6))
+
+    plt.subplot(1,2,1)
+    sns.lineplot(x=range(1,len(loss)+1),y=loss,label='Train Loss',marker='o')  
+    sns.lineplot(x=range(1,len(val_loss)+1),y=val_loss,label='Validation Loss',marker='o')
+    plt.legend()
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Loss Over Epochs')
+
+    plt.subplot(1,2,2)
+    sns.lineplot(x=range(1,len(accuracy)+1),y=accuracy,label='Train Accuracy',marker='o')
+    sns.lineplot(x=range(1,len(val_accuracy)+1),y=val_accuracy,label='Validation Accuracy',marker='o')
+    plt.legend()
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy')
+    plt.title('Accuracy Over Epochs')
+    
+    plt.tight_layout()  
+    plt.show()
+```
+
+# **Ewaluacja**
+
+```{python}
+def test_data_generator(path,limit):
+    list_temp = []
+    current_speaker, speakers_count, check = 0, 0, 0
+
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            if file.endswith(".npy"):
+                file_path = os.path.join(root, file)
+                filename = os.path.splitext(file)[0]
+                speaker_id = int(filename.split('_')[0])
+
+                if speaker_id != current_speaker:
+                    current_speaker = speaker_id
+                    speakers_count += 1
+                    check = 0
+
+                mfcc_matrix = np.load(file_path)
+                if mfcc_matrix.shape[0] == 157:
+                    if speakers_count > limit:
+                        list_temp.append(mfcc_matrix) # 8 12 10
+                        if len(list_temp) == 10:
+                            X_enrollment = np.concatenate(list_temp, axis=0)
+                            y_enrollment = speaker_id
+                            list_temp = []
+                            check = 1
+                            yield X_enrollment, y_enrollment, 'enrollment'
+                        if len(list_temp) == 6 and check == 1: # 2 4 6
+                            X_test = np.concatenate(list_temp, axis=0)
+                            y_test = speaker_id
+                            list_temp = []
+                            yield X_test, y_test, 'test'
+```
+
+```{python}
+def score(embedding_layer,LDA,X_enrollment,y_enrollment,X_test,y_test,output_csv):
+    scores=[]
+    print(type(scores))
+    for j in range(len(X_enrollment)):
+        enrollment_embeddings =[]
+        enrollment_sample = X_enrollment[j]
+        enrollment_samples_157 = [enrollment_sample[k:k+157] for k in range(0, len(enrollment_sample), 157)]
+        for enrollment_sample_157 in enrollment_samples_157:
+            enrollment_embedding = LDA.transform(embedding_layer.predict(np.expand_dims(enrollment_sample_157, axis=0)))[0,:]
+            enrollment_embeddings.append(enrollment_embedding)
+        mean_enrollment_embedding = np.expand_dims(np.mean(enrollment_embeddings, axis=0),axis=0)
+
+        for i in range(len(X_test)):
+            test_sample = X_test[i]
+            random=round(np.random.uniform(0,1),2)
+            
+            if y_enrollment[j]==y_test[i] and random<=0.7:
+                genuine_impost_test(test_sample,LDA,embedding_layer,mean_enrollment_embedding,j,i,1,scores)
+            elif y_enrollment[j]!=y_test[i] and random<=0.12:
+                genuine_impost_test(test_sample,LDA,embedding_layer,mean_enrollment_embedding,j,i,0,scores)
+    df = pd.DataFrame(scores,columns=['Speaker A','Speaker B','Score','Test'])
+    df.to_csv(output_csv,index=False)
+```
+
+```{python}
+def genuine_impost_test(test_sample,LDA,embedding_layer,mean_enrollment_embedding,j,i,test,scores):
+        test_embeddings=[]
+        test_samples_157=[test_sample[k:k+157] for k in range(0,len(test_sample),157)]
+        for test_sample_157 in test_samples_157:
+            test_embedding=LDA.transform(embedding_layer.predict(np.expand_dims(test_sample_157,axis=0)))[0,:]
+            test_embeddings.append(test_embedding)
+
+        mean_test_embedding=np.expand_dims(np.mean(test_embeddings,axis=0),axis=0)
+        similarity_score=cosine_similarity(mean_enrollment_embedding,mean_test_embedding)
+        is_genuine=test
+        scores.append([y_enrollment[j],y_test[i],similarity_score[0][0],is_genuine])
+```
+
+## **LDA**
+
+```{python}
+def prepare_data(path, limit):
+    files = os.listdir(path)
+    i = 0
+    current_id = files[0].split("_")[0]
+    for file in files:
+        if current_id != file.split("_")[0]:
+            i += 1
+            if i >= limit:
+                break
+            current_id = file.split("_")[0]
+        audio = np.load(os.path.join(path, file))
+        yield audio, current_id
+```
+
+```{python}
+def LDA(X_train, y_train):
+    RNNmodel = keras.models.load_model("C:/Users/48502/Desktop/Baza/IAD2SEM1/Projects/AMLM/model.keras")
+    embedding_layer = keras.Model(inputs=RNNmodel.input, outputs=RNNmodel.layers[3].output)
+    X_train_emb = []
+
+    for x in X_train:
+        train_emb = embedding_layer.predict(np.expand_dims(x, axis=0))
+        X_train_emb.append(train_emb.flatten())  
+
+    X_train_emb = np.array(X_train_emb)
+    lda_model = LinearDiscriminantAnalysis(n_components=51)
+    lda_model.fit(X_train_emb, y_train)
+
+    with open("AMLM/LDA_model.pk", "wb") as file:
+        pickle.dump(lda_model, file)
+```
+
+# **Wyniki**
+
+```{python}
+def FAR_FRR_plot(path):
+    data_frame = pd.read_csv(path)
+
+    is_genuine_0 = data_frame[data_frame['Test'] == 0]
+    is_genuine_1 = data_frame[data_frame['Test'] == 1]
+
+    sns.set(style="whitegrid")
+
+    plt.subplot(2, 1, 1)
+    sns.histplot(is_genuine_0['Score'], bins=30, kde=True, color='red', label='is_genuine = 0')
+    plt.xlabel('Wartość score')
+    plt.ylabel('Liczba wystąpień')
+    plt.title('Histogram testu impostor')
+    plt.legend(loc='upper right')
+
+    plt.subplot(2, 1, 2)
+    sns.histplot(is_genuine_1['Score'], bins=30, kde=True, color='blue', label='is_genuine = 1')
+    plt.xlabel('Wartość score')
+    plt.ylabel('Liczba wystąpień')
+    plt.title('Histogram testu genuine')
+    plt.legend(loc='upper right')
+
+    plt.tight_layout()
+    plt.show()
+```
+
+```{python}
+def DET_plot(path):
+    data=pd.read_csv(path)
+
+    impostor_test=data[data['Test']==0]
+    genuine_test=data[data['Test']==1]
+    num_bins=60
+
+    hist_impostor,bins_impostor=np.histogram(impostor_test['Score'],bins=num_bins,range=(0, 1))
+    far_values = []
+    for i in range(1,len(bins_impostor)):
+        far_values.append(len(impostor_test[impostor_test['Score']>=bins_impostor[i]])/len(impostor_test))
+
+    hist_genuine, bins_genuine = np.histogram(genuine_test['Score'],bins=num_bins,range=(0, 1))
+    frr_values = []
+    for i in range(1,len(bins_genuine)):
+        frr_values.append(len(genuine_test[genuine_test['Score']<bins_genuine[i]])/len(genuine_test))
+
+    x_values = np.linspace(0,1,num_bins)
+
+    plt.figure(figsize=(8, 6))
+    plt.subplot(2, 1, 1)
+    plt.plot(x_values,far_values,label='FAR',color='red')
+    plt.plot(x_values,frr_values,label='FRR',color='blue')
+    plt.xlabel('Score')
+    plt.ylabel('Value')
+    plt.title('FAR-FRR Curves')
+    plt.xlim(0,1)
+    plt.legend()
+    plt.grid()
+
+    eer_index=np.argmin(np.abs(np.array(far_values)-np.array(frr_values)))
+    eer=far_values[eer_index]
+
+    far_percent=np.array(far_values)*100
+    frr_percent=np.array(frr_values)*100
+
+    plt.subplot(2, 1, 2)
+    plt.xscale('log')  
+    plt.yscale('log')  
+    plt.xlim(0.5, 100)
+    plt.ylim(0.5, 100)
+    plt.xticks([1,5,10,25,100],['1%','5%','10%','25%','100%'])
+    plt.yticks([1,5,10,25,100],['1%','5%','10%','25%','100%'])
+    plt.plot(far_percent, frr_percent, color='purple')
+    plt.xlabel("False Acceptance Rate (FAR in %)")
+    plt.ylabel("False Rejection Rate (FRR in %)")
+    plt.title('DET Curve')
+
+    plt.plot(far_percent[eer_index],frr_percent[eer_index], 'ro')
+    plt.annotate(f'EER={eer * 100:.2f}%',(far_percent[eer_index] + 0.5,frr_percent[eer_index]))
+    plt.grid()
+
+    plt.tight_layout()
+    plt.show()
+```
+
+# **Wnioski**
